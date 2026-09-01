@@ -10,14 +10,13 @@ const PORT = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 
-// Database setup with serialize mode to prevent locking
-const dbPath = path.join(__dirname, 'urls.db');
+// Database setup
+const dbPath = path.join(__dirname, 'server', 'urls.db');
 const db = new sqlite3.Database(dbPath, (err) => {
   if (err) console.error('Database connection error:', err);
-  else console.log('Connected to SQLite database at:', dbPath);
+  else console.log('✅ Connected to SQLite database');
 });
 
-// Serialize mode prevents database lock issues
 db.configure('busyTimeout', 5000);
 
 // Create table if not exists
@@ -29,12 +28,9 @@ db.run(`
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     click_count INTEGER DEFAULT 0
   )
-`, (err) => {
-  if (err) console.error('Table creation error:', err);
-  else console.log('URLs table ready');
-});
+`);
 
-// Generate short code (6 characters)
+// Utility functions
 function generateShortCode() {
   const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
   let code = '';
@@ -44,7 +40,6 @@ function generateShortCode() {
   return code;
 }
 
-// Validate URL
 function isValidUrl(string) {
   try {
     new URL(string);
@@ -54,14 +49,12 @@ function isValidUrl(string) {
   }
 }
 
-// === API ROUTES (Explicit, specific routes) ===
+// === API ROUTES ===
 
-// Health check
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// POST: Create short URL
 app.post('/api/shorten', (req, res) => {
   const { url } = req.body;
 
@@ -73,8 +66,6 @@ app.post('/api/shorten', (req, res) => {
     return res.status(400).json({ error: 'Invalid URL format' });
   }
 
-  let shortCode = generateShortCode();
-  
   const insertUrl = (code) => {
     db.run(
       'INSERT INTO urls (short_code, original_url) VALUES (?, ?)',
@@ -99,10 +90,9 @@ app.post('/api/shorten', (req, res) => {
     );
   };
 
-  insertUrl(shortCode);
+  insertUrl(generateShortCode());
 });
 
-// GET: Get URL stats
 app.get('/api/stats/:shortCode', (req, res) => {
   const { shortCode } = req.params;
 
@@ -123,7 +113,6 @@ app.get('/api/stats/:shortCode', (req, res) => {
   );
 });
 
-// GET: List all URLs
 app.get('/api/urls', (req, res) => {
   db.all(
     'SELECT short_code, original_url, created_at, click_count FROM urls ORDER BY created_at DESC',
@@ -137,7 +126,6 @@ app.get('/api/urls', (req, res) => {
   );
 });
 
-// DELETE: Delete URL
 app.delete('/api/urls/:shortCode', (req, res) => {
   const { shortCode } = req.params;
 
@@ -158,45 +146,39 @@ app.delete('/api/urls/:shortCode', (req, res) => {
   );
 });
 
-// === SERVE STATIC FILES ===
-const buildPath = path.join(__dirname, '../client/build');
-console.log('Serving React build from:', buildPath);
-app.use(express.static(buildPath, {
-  maxAge: '1h',
-  etag: false
-}));
+// === SERVE REACT BUILD ===
+const buildPath = path.join(__dirname, 'client', 'build');
+console.log('📦 Serving React build from:', buildPath);
+app.use(express.static(buildPath, { maxAge: '1h', etag: false }));
 
 // === CATCH-ALL: Handle short codes and React routing ===
 app.all('*', (req, res) => {
-  // Make sure we're not trying to serve a static file
+  // Skip static files
   if (req.path.match(/\.[^/]*$/)) {
     return res.status(404).send('Not found');
   }
 
   const shortCode = req.path.slice(1); // Remove leading /
 
-  // If empty path, serve React app
+  // Empty path - serve React app
   if (!shortCode) {
     return res.sendFile(path.join(buildPath, 'index.html'));
   }
 
   // Check if this is a short code (no dots, reasonable length)
   if (!shortCode.includes('.') && shortCode.length <= 20) {
-    // Query database for this short code
     db.get(
       'SELECT original_url, id FROM urls WHERE short_code = ?',
       [shortCode],
       (err, row) => {
         if (err) {
-          console.error('Database query error:', err);
+          console.error('Database error:', err);
           return res.sendFile(path.join(buildPath, 'index.html'));
         }
 
         if (row) {
           // Found matching short code - update click count and redirect
-          db.run('UPDATE urls SET click_count = click_count + 1 WHERE id = ?', [row.id], (err) => {
-            if (err) console.error('Update error:', err);
-          });
+          db.run('UPDATE urls SET click_count = click_count + 1 WHERE id = ?', [row.id]);
           return res.redirect(row.original_url);
         }
 
@@ -211,7 +193,7 @@ app.all('*', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`\n✅ Server running on http://localhost:${PORT}`);
+  console.log(`\n🚀 URL Shortener running on http://localhost:${PORT}`);
   console.log(`🔧 Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`📦 Database: ${dbPath}\n`);
+  console.log(`📁 Database: ${dbPath}\n`);
 });
