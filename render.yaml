@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: url-shortener-app
+    env: docker
+    region: oregon
+    plan: free
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: BASE_URL
+        value: https://url-shortener-app-4gtd.onrender.com
